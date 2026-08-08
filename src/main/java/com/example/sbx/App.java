@@ -4,7 +4,11 @@ import com.sun.jna.Function;
 import com.sun.jna.NativeLibrary;
 
 import java.io.IOException;
+import java.math.BigInteger;
+import java.net.BindException;
+import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -12,6 +16,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -29,27 +35,34 @@ public class App {
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+    private static final SecureRandom RANDOM = new SecureRandom();
     private static final Map<String, String> DOT_ENV = loadDotEnv();
 
+    private static final String UPLOAD_URL = env("UPLOAD_URL", "");
     private static final String PROJECT_URL = env("PROJECT_URL", "");
     private static final boolean AUTO_ACCESS = envBool("AUTO_ACCESS", false);
     private static final boolean YT_WARPOUT = envBool("YT_WARPOUT", false);
     private static final String FILE_PATH = env("FILE_PATH", ".tmp");
     private static final String SUB_PATH = env("SUB_PATH", "sub");
     private static final String UUID = env("UUID", "6e5b138d-8be7-4bd3-9ac6-8b3730b819d3");
-    private static final String NEZHA_SERVER = env("nezha.tebus.art:443", "");
+    private static final String NEZHA_SERVER = env("NEZHA_SERVER", "nezha.tebus.art:443");
     private static final String NEZHA_PORT = env("NEZHA_PORT", "");
-    private static final String NEZHA_KEY = env("L781K2QaLyzSHeDMS6P7ia6A9WZ9OXQE", "");
-    private static final String ARGO_DOMAIN = env("yxg.youxiji.dpdns.org", "");
-    private static final String ARGO_AUTH = env("eyJhIjoiMTQzNWVjNTk3ZDcwODc5OTMzNWMxMjcwN2MxZGU0NzciLCJ0IjoiYjlhOWJmMWUtZTAxZC00MTQ4LWIzMGMtMmU4YTRiNDk5MzkyIiwicyI6Ik1Ua3lNbVV6TkRndE9HWmhPUzAwWVRsaExXSXpZekF0WVRkaVpHTmhNRFUwTkdRMSJ9", "");
-    private static final int ARGO_PORT = envInt("8007", 8001);
+    private static final String NEZHA_KEY = env("NEZHA_KEY", "L781K2QaLyzSHeDMS6P7ia6A9WZ9OXQE");
+    private static final String ARGO_DOMAIN = env("ARGO_DOMAIN", "yxg.youxiji.dpdns.org");
+    private static final String ARGO_AUTH = env("ARGO_AUTH", "eyJhIjoiMTQzNWVjNTk3ZDcwODc5OTMzNWMxMjcwN2MxZGU0NzciLCJ0IjoiYjlhOWJmMWUtZTAxZC00MTQ4LWIzMGMtMmU4YTRiNDk5MzkyIiwicyI6Ik1Ua3lNbVV6TkRndE9HWmhPUzAwWVRsaExXSXpZekF0WVRkaVpHTmhNRFUwTkdRMSJ9");
+    private static final int ARGO_PORT = envInt("ARGO_PORT", 8007);
     private static final String S5_PORT = env("S5_PORT", "");
     private static final String HY2_PORT = env("HY2_PORT", "5011");
+    private static final String TUIC_PORT = env("TUIC_PORT", "");
+    private static final String ANYTLS_PORT = env("ANYTLS_PORT", "");
+    private static final String REALITY_PORT = env("REALITY_PORT", "");
     private static final String CFIP = env("CFIP", "store.ubi.com");
     private static final int CFPORT = envInt("CFPORT", 443);
     private static final String NAME = env("NAME", "FreeMcHosting");
+    private static final String CHAT_ID = env("CHAT_ID", "");  // 如果关闭了log，请填写推送
+    private static final String BOT_TOKEN = env("BOT_TOKEN", "");
     private static final boolean DISABLE_ARGO = envBool("DISABLE_ARGO", false);
-    private static final boolean SHOW_LOG = !List.of("false", "disable", "no").contains(env("SHOW_LOG", "true").toLowerCase());
+    private static final boolean SHOW_LOG = !List.of("false", "disable", "no").contains(env("SHOW_LOG", "true").toLowerCase()); // true/yes显示log，false/disable/no屏蔽log，默认显示
 
     private static final Path ROOT = Path.of("").toAbsolutePath();
     private static final Path RUNTIME_DIR = ROOT.resolve(FILE_PATH).normalize();
@@ -59,30 +72,19 @@ public class App {
     private static final Path SUB_FILE_PATH = RUNTIME_DIR.resolve("sub.txt");
     private static final Path LIST_FILE_PATH = RUNTIME_DIR.resolve("list.txt");
     private static final Path INDEX_FILE_PATH = ROOT.resolve("index.html").normalize();
+    private static final Path KEYPAIR_PATH = RUNTIME_DIR.resolve("keypair.properties");
     private static final String SUBSCRIBE_PATH = "/" + SUB_PATH.replaceFirst("^/+", "");
     private static final String ARCH = detectArch();
 
-    private static final String FALLBACK_EC_KEY =
-            "-----BEGIN EC PRIVATE KEY-----\n" +
-            "MHcCAQEEIIn2Ylh/uU0eL6yGqDpxo3fD1L2q2X5L8vK2p3y4M+I1oAoGCCqGSM49\n" +
-            "AwEHoUQDAgAEAyAC/1fP6O5a4mR9sL4l8s5J7k1J1K1L1M1N1O1P1Q1R1S1T1U1V\n" +
-            "1W1X1Y1Z1a1b1c1d1e1f1g==\n" +
-            "-----END EC PRIVATE KEY-----\n";
-
-    private static final String FALLBACK_CERT =
-            "-----BEGIN CERTIFICATE-----\n" +
-            "MIIB3jCCAYSgAwIBAgIUa1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6MAoGCCqGSM49\n" +
-            "BAMCMAMxCzAJBgNVBAYTAkNOADAeFw0yNDAxMDEwMDAwMDBaFw0zNDAxMDEwMDAw\n" +
-            "MDBaMAMxCzAJBgNVBAYTAkNOMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAyAC\n" +
-            "/1fP6O5a4mR9sL4l8s5J7k1J1K1L1M1N1O1P1Q1R1S1T1U1V1W1X1Y1Z1a1b1c1d\n" +
-            "1e1f1g==\n" +
-            "-----END CERTIFICATE-----\n";
+    private static String privateKey = "";
+    private static String publicKey = "";
 
     public static void main(String[] args) throws Exception {
         startServer();
     }
 
     private static void startServer() throws Exception {
+        deleteNodes();
         Files.createDirectories(RUNTIME_DIR);
         cleanupOldFiles();
         argoType();
@@ -101,12 +103,16 @@ public class App {
         } else if (!NEZHA_SERVER.isEmpty() && !NEZHA_KEY.isEmpty()) {
             nezhaLib = downloadLibrary(baseUrl + "/v1.so", "v1.so");
         } else {
-            log("NEZHA 变量为空，跳过加载");
+            log("NEZHA variable is empty, skipping");
+        }
+
+        if (isValidPort(REALITY_PORT)) {
+            generateOrLoadKeypair();
         }
 
         Path certPath = RUNTIME_DIR.resolve("cert.pem");
         Path keyPath = RUNTIME_DIR.resolve("private.key");
-        if (isValidPort(HY2_PORT)) {
+        if (isValidPort(HY2_PORT) || isValidPort(TUIC_PORT) || isValidPort(ANYTLS_PORT)) {
             ensureTlsCertificates(certPath, keyPath);
         }
 
@@ -136,20 +142,23 @@ public class App {
         }
 
         sleep(1000);
-        log("web 服务运行中");
-        if (cloudflaredLib != null) log("bot 服务运行中");
-        if (nezhaLib != null || nezhaAgentLib != null) log("php 服务运行中");
+        log("web is running");
+        if (cloudflaredLib != null) log("bot is running");
+        if (nezhaLib != null || nezhaAgentLib != null) log("php is running");
 
         sleep(5000);
         String argoDomain = extractDomain().orElse(null);
         String subText = generateLinks(argoDomain);
 
+        sendTelegram();
+        uploadNodes();
         addVisitTask();
 
         Thread cleanupThread = new Thread(() -> {
             sleep(45000);
             cleanupFiles(true);
             clearConsole();
+            // System.out.println("App is running");
         }, "delayed-cleanup");
         cleanupThread.setDaemon(true);
         cleanupThread.start();
@@ -158,7 +167,7 @@ public class App {
     }
 
     private static void stopAll(List<NativeService> services) {
-        log("\n正在停止所有服务...");
+        log("\nStopping all services...");
         for (int i = services.size() - 1; i >= 0; i--) {
             try {
                 services.get(i).stop();
@@ -193,10 +202,10 @@ public class App {
                 try {
                     int code = startFunction.invokeInt(new Object[]{payload});
                     if (code != 0) {
-                        log(name + " 原生服务退出，退出代码: " + code);
+                        log(name + " native service exited with code " + code);
                     }
                 } catch (Exception e) {
-                    log(name + " 原生服务启动失败: " + e.getMessage());
+                    log(name + " native service failed: " + e.getMessage());
                 }
             }, name + "-thread");
             thread.setDaemon(true);
@@ -209,20 +218,20 @@ public class App {
             try {
                 int code = stopFunction.invokeInt(new Object[]{});
                 running = false;
-                log(name + " 已停止，代码: " + code);
+                log(name + " stopped with code " + code);
             } catch (Exception e) {
-                log("停止 " + name + " 失败: " + e.getMessage());
+                log("Failed to stop " + name + ": " + e.getMessage());
             }
         }
     }
 
     private static void argoType() throws IOException {
         if (DISABLE_ARGO) {
-            log("DISABLE_ARGO 已设置为 true，禁用 Argo 隧道");
+            log("DISABLE_ARGO is set to true, disable argo tunnel");
             return;
         }
         if (ARGO_AUTH.isEmpty() || ARGO_DOMAIN.isEmpty()) {
-            log("ARGO_DOMAIN 或 ARGO_AUTH 变量为空，使用快捷隧道");
+            log("ARGO_DOMAIN or ARGO_AUTH variable is empty, use quick tunnel");
             return;
         }
         if (ARGO_AUTH.contains("TunnelSecret")) {
@@ -239,23 +248,23 @@ public class App {
                     "  - service: http_status:404\n";
             Files.writeString(RUNTIME_DIR.resolve("tunnel.yml"), yaml, StandardCharsets.UTF_8);
         } else {
-            log("使用 Token 连接隧道，请在 Cloudflare 中配置端口 " + ARGO_PORT);
+            log("Using token connect to tunnel, please set " + ARGO_PORT + " in cloudflare");
         }
     }
 
     private static Path downloadLibrary(String url, String fileName) throws Exception {
         Path target = RUNTIME_DIR.resolve(fileName);
         if (Files.exists(target)) {
-            log("使用本地缓存的原生动态库: " + target);
+            log("Using cached native library: " + target);
             return target;
         }
         Files.createDirectories(RUNTIME_DIR);
         Path tmp = RUNTIME_DIR.resolve(fileName + ".download");
-        log("下载中: " + url + " -> " + target);
+        log("Downloading " + url + " -> " + target);
         HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(3)).GET().build();
         HttpResponse<byte[]> response = HTTP.send(request, HttpResponse.BodyHandlers.ofByteArray());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("下载失败 " + url + ": HTTP " + response.statusCode());
+            throw new IOException("Failed to download " + url + ": HTTP " + response.statusCode());
         }
         Files.write(tmp, response.body());
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
@@ -274,6 +283,26 @@ public class App {
                 "transport", mapOf("type", "ws", "path", "/vmess-argo", "early_data_header_name", "Sec-WebSocket-Protocol")
         ));
 
+        if (isValidPort(REALITY_PORT)) {
+            inbounds.add(mapOf(
+                    "type", "vless",
+                    "tag", "vless-reality",
+                    "listen", "::",
+                    "listen_port", Integer.parseInt(REALITY_PORT),
+                    "users", listOf(mapOf("uuid", UUID, "flow", "xtls-rprx-vision")),
+                    "tls", mapOf(
+                            "enabled", true,
+                            "server_name", "www.iij.ad.jp",
+                            "reality", mapOf(
+                                    "enabled", true,
+                                    "handshake", mapOf("server", "www.iij.ad.jp", "server_port", 443),
+                                    "private_key", privateKey,
+                                    "short_id", listOf("")
+                            )
+                    )
+            ));
+        }
+
         if (isValidPort(HY2_PORT)) {
             inbounds.add(mapOf(
                     "type", "hysteria2",
@@ -282,6 +311,18 @@ public class App {
                     "listen_port", Integer.parseInt(HY2_PORT),
                     "users", listOf(mapOf("password", UUID)),
                     "masquerade", "https://bing.com",
+                    "tls", mapOf("enabled", true, "alpn", listOf("h3"), "certificate_path", certPath, "key_path", keyPath)
+            ));
+        }
+
+        if (isValidPort(TUIC_PORT)) {
+            inbounds.add(mapOf(
+                    "type", "tuic",
+                    "tag", "tuic-in",
+                    "listen", "::",
+                    "listen_port", Integer.parseInt(TUIC_PORT),
+                    "users", listOf(mapOf("uuid", UUID, "password", UUID)),
+                    "congestion_control", "bbr",
                     "tls", mapOf("enabled", true, "alpn", listOf("h3"), "certificate_path", certPath, "key_path", keyPath)
             ));
         }
@@ -296,6 +337,17 @@ public class App {
             ));
         }
 
+        if (isValidPort(ANYTLS_PORT)) {
+            inbounds.add(mapOf(
+                    "type", "anytls",
+                    "tag", "anytls-in",
+                    "listen", "::",
+                    "listen_port", Integer.parseInt(ANYTLS_PORT),
+                    "users", listOf(mapOf("password", UUID)),
+                    "tls", mapOf("enabled", true, "certificate_path", certPath, "key_path", keyPath)
+            ));
+        }
+
         List<Object> ruleSet = new ArrayList<>();
         ruleSet.add(mapOf("tag", "netflix", "type", "remote", "format", "binary", "url", "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/netflix.srs"));
         ruleSet.add(mapOf("tag", "openai", "type", "remote", "format", "binary", "url", "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/openai.srs"));
@@ -303,7 +355,7 @@ public class App {
         if (needsYoutubeWarp()) {
             ruleSet.add(mapOf("tag", "youtube", "type", "remote", "format", "binary", "url", "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/youtube.srs"));
             wireguardRuleSets.add("youtube");
-            log("已添加 YouTube 分流规则");
+            log("Add YouTube outbound rule");
         }
 
         List<Object> endpoints = listOf(mapOf(
@@ -390,6 +442,126 @@ public class App {
         Files.writeString(NEZHA_CONFIG_PATH, yaml, StandardCharsets.UTF_8);
     }
 
+    private static void generateOrLoadKeypair() throws IOException {
+        if (Files.exists(KEYPAIR_PATH)) {
+            String content = Files.readString(KEYPAIR_PATH, StandardCharsets.UTF_8);
+            Optional<String> maybePrivate = findProperty(content, "PrivateKey");
+            Optional<String> maybePublic = findProperty(content, "PublicKey");
+            if (maybePrivate.isPresent() && maybePublic.isPresent()) {
+                try {
+                    byte[] privateBytes = decodeBase64Url(maybePrivate.get());
+                    byte[] publicBytes = decodeBase64Url(maybePublic.get());
+                    byte[] normalizedPrivate = clampPrivateKey(privateBytes);
+                    byte[] derivedPublic = x25519(normalizedPrivate, basepoint());
+                    if (publicBytes.length != 32 || !MessageDigest.isEqual(publicBytes, derivedPublic)) {
+                        throw new IllegalArgumentException("stored public key does not match private key");
+                    }
+                    privateKey = base64Url(normalizedPrivate);
+                    publicKey = base64Url(derivedPublic);
+                    if (!privateKey.equals(maybePrivate.get().trim()) || !publicKey.equals(maybePublic.get().trim())) {
+                        writeKeypair();
+                    }
+                    printKeypair();
+                    return;
+                } catch (Exception e) {
+                    log("Invalid Reality keypair, regenerating: " + e.getMessage());
+                }
+            }
+        }
+        byte[] privateBytes = new byte[32];
+        RANDOM.nextBytes(privateBytes);
+        privateBytes = clampPrivateKey(privateBytes);
+        byte[] publicBytes = x25519(privateBytes, basepoint());
+        privateKey = base64Url(privateBytes);
+        publicKey = base64Url(publicBytes);
+        writeKeypair();
+        printKeypair();
+    }
+
+    private static void writeKeypair() throws IOException {
+        Files.createDirectories(KEYPAIR_PATH.getParent());
+        Files.writeString(KEYPAIR_PATH, "PrivateKey: " + privateKey + "\nPublicKey: " + publicKey + "\n", StandardCharsets.UTF_8);
+    }
+
+    private static void printKeypair() {
+        log("Private Key: " + privateKey);
+        log("Public Key: " + publicKey);
+    }
+
+    private static byte[] clampPrivateKey(byte[] input) {
+        if (input.length != 32) throw new IllegalArgumentException("X25519 private key must be 32 bytes");
+        byte[] key = input.clone();
+        key[0] &= (byte) 248;
+        key[31] &= (byte) 127;
+        key[31] |= (byte) 64;
+        return key;
+    }
+
+    private static byte[] x25519(byte[] scalar, byte[] u) {
+        BigInteger p = BigInteger.ONE.shiftLeft(255).subtract(BigInteger.valueOf(19));
+        BigInteger a24 = BigInteger.valueOf(121665);
+        byte[] k = clampPrivateKey(scalar);
+        BigInteger x1 = decodeLittleEndian(u);
+        BigInteger x2 = BigInteger.ONE;
+        BigInteger z2 = BigInteger.ZERO;
+        BigInteger x3 = x1;
+        BigInteger z3 = BigInteger.ONE;
+        int swap = 0;
+        for (int t = 254; t >= 0; t--) {
+            int kt = ((k[t / 8] & 0xff) >> (t % 8)) & 1;
+            swap ^= kt;
+            if (swap != 0) {
+                BigInteger tmp = x2; x2 = x3; x3 = tmp;
+                tmp = z2; z2 = z3; z3 = tmp;
+            }
+            swap = kt;
+            BigInteger a = x2.add(z2).mod(p);
+            BigInteger aa = a.multiply(a).mod(p);
+            BigInteger b = x2.subtract(z2).mod(p);
+            BigInteger bb = b.multiply(b).mod(p);
+            BigInteger e = aa.subtract(bb).mod(p);
+            BigInteger c = x3.add(z3).mod(p);
+            BigInteger d = x3.subtract(z3).mod(p);
+            BigInteger da = d.multiply(a).mod(p);
+            BigInteger cb = c.multiply(b).mod(p);
+            x3 = da.add(cb).multiply(da.add(cb)).mod(p);
+            z3 = x1.multiply(da.subtract(cb).multiply(da.subtract(cb)).mod(p)).mod(p);
+            x2 = aa.multiply(bb).mod(p);
+            z2 = e.multiply(aa.add(a24.multiply(e)).mod(p)).mod(p);
+        }
+        if (swap != 0) {
+            BigInteger tmp = x2; x2 = x3; x3 = tmp;
+            tmp = z2; z2 = z3; z3 = tmp;
+        }
+        BigInteger result = x2.multiply(z2.modInverse(p)).mod(p);
+        return encodeLittleEndian(result);
+    }
+
+    private static byte[] basepoint() {
+        byte[] basepoint = new byte[32];
+        basepoint[0] = 9;
+        return basepoint;
+    }
+
+    private static BigInteger decodeLittleEndian(byte[] input) {
+        byte[] reversed = new byte[input.length];
+        for (int i = 0; i < input.length; i++) {
+            reversed[input.length - 1 - i] = input[i];
+        }
+        return new BigInteger(1, reversed);
+    }
+
+    private static byte[] encodeLittleEndian(BigInteger value) {
+        byte[] output = new byte[32];
+        BigInteger n = value;
+        BigInteger mask = BigInteger.valueOf(0xff);
+        for (int i = 0; i < 32; i++) {
+            output[i] = n.and(mask).byteValue();
+            n = n.shiftRight(8);
+        }
+        return output;
+    }
+
     private static String generateLinks(String argoDomain) throws Exception {
         String serverIp = getServerIp();
         String isp = getMetaInfo();
@@ -406,8 +578,17 @@ public class App {
             );
             nodes.add("vmess://" + Base64.getEncoder().encodeToString(toJson(vmess).getBytes(StandardCharsets.UTF_8)));
         }
+        if (isValidPort(TUIC_PORT)) {
+            nodes.add("tuic://" + UUID + ":" + UUID + "@" + serverIp + ":" + TUIC_PORT + "?sni=www.bing.com&congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#" + nodeName);
+        }
         if (isValidPort(HY2_PORT)) {
             nodes.add("hysteria2://" + UUID + "@" + serverIp + ":" + HY2_PORT + "/?sni=www.bing.com&insecure=1&alpn=h3&obfs=none#" + nodeName);
+        }
+        if (isValidPort(REALITY_PORT)) {
+            nodes.add("vless://" + UUID + "@" + serverIp + ":" + REALITY_PORT + "?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=" + publicKey + "&type=tcp&headerType=none#" + nodeName);
+        }
+        if (isValidPort(ANYTLS_PORT)) {
+            nodes.add("anytls://" + UUID + "@" + serverIp + ":" + ANYTLS_PORT + "?security=tls&sni=" + serverIp + "&fp=chrome&insecure=1&allowInsecure=1#" + nodeName);
         }
         if (isValidPort(S5_PORT)) {
             String auth = Base64.getEncoder().encodeToString((UUID.substring(0, 8) + ":" + UUID.substring(UUID.length() - 12)).getBytes(StandardCharsets.UTF_8));
@@ -417,28 +598,28 @@ public class App {
         String subText = String.join("\n", nodes);
         String encoded = Base64.getEncoder().encodeToString(subText.getBytes(StandardCharsets.UTF_8));
         log("\u001b[32m" + encoded + "\u001b[0m");
-        log("\u001b[35m日志将在 45 秒内清除，请及时复制上方节点\u001b[0m");
+        log("\u001b[35mLogs will be deleted in 45 seconds, you can copy the above nodes\u001b[0m");
         Files.writeString(SUB_FILE_PATH, encoded, StandardCharsets.UTF_8);
         Files.writeString(LIST_FILE_PATH, subText, StandardCharsets.UTF_8);
-        log(FILE_PATH + "/sub.txt 保存成功");
+        log(FILE_PATH + "/sub.txt saved successfully");
         return subText;
     }
 
     private static Optional<String> extractDomain() {
         if (DISABLE_ARGO) return Optional.empty();
         if (!ARGO_AUTH.isEmpty() && !ARGO_DOMAIN.isEmpty()) {
-            log("ARGO 域名: " + ARGO_DOMAIN);
+            log("ARGO_DOMAIN: " + ARGO_DOMAIN);
             return Optional.of(ARGO_DOMAIN);
         }
-        log("正在日志中等待快捷隧道域名...");
+        log("Waiting for quick tunnel domain in log...");
         Optional<String> domain = waitForQuickTunnelDomain(Duration.ofSeconds(30));
         if (domain.isEmpty()) {
-            log("未找到快捷隧道域名，重试中...");
+            log("Quick tunnel domain not found, retrying...");
             try { Files.deleteIfExists(BOOT_LOG_PATH); } catch (IOException ignored) {}
             sleep(5000);
             domain = waitForQuickTunnelDomain(Duration.ofSeconds(30));
         }
-        domain.ifPresentOrElse(d -> log("Argo 域名: " + d), () -> log("未获取到 Argo 域名"));
+        domain.ifPresentOrElse(d -> log("ArgoDomain: " + d), () -> log("ArgoDomain not found"));
         return domain;
     }
 
@@ -488,7 +669,7 @@ public class App {
         }
         Files.writeString(keyPath, FALLBACK_EC_KEY, StandardCharsets.UTF_8);
         Files.writeString(certPath, FALLBACK_CERT, StandardCharsets.UTF_8);
-        if (!looksLikePemPair(certPath, keyPath)) throw new IOException("生成有效的 TLS 证书对失败");
+        if (!looksLikePemPair(certPath, keyPath)) throw new IOException("failed to create a valid TLS certificate pair");
     }
 
     private static boolean looksLikePemPair(Path certPath, Path keyPath) {
@@ -502,178 +683,380 @@ public class App {
         }
     }
 
-    private static void addVisitTask() {
-        if (!AUTO_ACCESS || PROJECT_URL.isEmpty()) return;
-        Thread t = new Thread(() -> {
-            while (true) {
-                try {
-                    HttpRequest req = HttpRequest.newBuilder(URI.create(PROJECT_URL)).GET().build();
-                    HTTP.send(req, HttpResponse.BodyHandlers.discarding());
-                } catch (Exception ignored) {}
-                sleep(120000);
-            }
-        });
-        t.setDaemon(true);
-        t.start();
-    }
-
-    private static void cleanupOldFiles() {
-        cleanupFiles(false);
-    }
-
-    private static void cleanupFiles(boolean deleteLogs) {
+    private static void deleteNodes() {
+        if (UPLOAD_URL.isEmpty() || !Files.exists(SUB_FILE_PATH)) return;
         try {
-            if (deleteLogs) Files.deleteIfExists(BOOT_LOG_PATH);
-        } catch (IOException ignored) {}
-    }
-
-    private static void clearConsole() {
-        if (!SHOW_LOG) {
-            System.out.print("\033[H\033[2J");
-            System.out.flush();
+            String decoded = new String(Base64.getDecoder().decode(Files.readString(SUB_FILE_PATH, StandardCharsets.UTF_8)), StandardCharsets.UTF_8);
+            List<String> nodes = decoded.lines().filter(App::isNodeLine).collect(Collectors.toList());
+            if (!nodes.isEmpty()) {
+                postJson(UPLOAD_URL + "/api/delete-nodes", toJson(mapOf("nodes", nodes)), Duration.ofSeconds(30));
+            }
+        } catch (Exception ignored) {
         }
     }
 
-    private static String getServerIp() {
+    private static void uploadNodes() {
         try {
-            HttpRequest req = HttpRequest.newBuilder(URI.create("https://api.ipify.org")).timeout(Duration.ofSeconds(5)).GET().build();
-            return HTTP.send(req, HttpResponse.BodyHandlers.ofString()).body().trim();
+            if (!UPLOAD_URL.isEmpty() && !PROJECT_URL.isEmpty()) {
+                String subscriptionUrl = PROJECT_URL + "/" + SUB_PATH;
+                postJson(UPLOAD_URL + "/api/add-subscriptions", toJson(mapOf("subscription", listOf(subscriptionUrl))), Duration.ofSeconds(30));
+                log("Subscription uploaded successfully");
+            } else if (!UPLOAD_URL.isEmpty() && Files.exists(LIST_FILE_PATH)) {
+                List<String> nodes = Files.readString(LIST_FILE_PATH, StandardCharsets.UTF_8).lines().filter(App::isNodeLine).collect(Collectors.toList());
+                if (!nodes.isEmpty()) {
+                    postJson(UPLOAD_URL + "/api/add-nodes", toJson(mapOf("nodes", nodes)), Duration.ofSeconds(30));
+                    log("Subscription uploaded successfully");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void sendTelegram() {
+        if (BOT_TOKEN.isEmpty() || CHAT_ID.isEmpty()) {
+            log("TG variables is empty, Skipping push nodes to TG");
+            return;
+        }
+        try {
+            String message = Files.readString(SUB_FILE_PATH, StandardCharsets.UTF_8);
+            String text = "**" + escapeMarkdownV2(NAME) + "nodes push notification**\n```" + message + "```";
+            String form = "chat_id=" + urlEncode(CHAT_ID) + "&text=" + urlEncode(text) + "&parse_mode=MarkdownV2";
+            HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(form))
+                    .build();
+            HTTP.send(request, HttpResponse.BodyHandlers.discarding());
+            log("Telegram message sent successfully");
         } catch (Exception e) {
-            return "127.0.0.1";
+            log("Failed to send Telegram message: " + e.getMessage());
+        }
+    }
+
+    private static void addVisitTask() {
+        if (!AUTO_ACCESS || PROJECT_URL.isEmpty()) {
+            log("Skipping adding automatic access task");
+            return;
+        }
+        try {
+            postJson("https://oooo.serv00.net/add-url", toJson(mapOf("url", PROJECT_URL)), Duration.ofSeconds(30));
+            log("Automatic access task added successfully");
+        } catch (Exception e) {
+            log("Add URL failed: " + e.getMessage());
         }
     }
 
     private static String getMetaInfo() {
         try {
-            HttpRequest req = HttpRequest.newBuilder(URI.create("https://ipapi.co/org/")).timeout(Duration.ofSeconds(5)).GET().build();
-            return HTTP.send(req, HttpResponse.BodyHandlers.ofString()).body().trim();
-        } catch (Exception e) {
-            return "VPS";
+            String body = getText("https://api.ip.sb/geoip", Duration.ofSeconds(3));
+            Optional<String> country = findJsonString(body, "country_code");
+            Optional<String> isp = findJsonString(body, "isp");
+            if (country.isPresent() && isp.isPresent()) return (country.get() + "-" + isp.get()).replace(' ', '_');
+        } catch (Exception ignored) {
         }
+        try {
+            String body = getText("http://ip-api.com/json", Duration.ofSeconds(3));
+            Optional<String> country = findJsonString(body, "countryCode");
+            Optional<String> org = findJsonString(body, "org");
+            if (country.isPresent() && org.isPresent()) return (country.get() + "-" + org.get()).replace(' ', '_');
+        } catch (Exception ignored) {
+        }
+        return "Unknown";
+    }
+
+    private static String getServerIp() {
+        try {
+            String ipv4 = getText("http://ipv4.ip.sb", Duration.ofSeconds(3)).trim();
+            if (!ipv4.isEmpty()) return ipv4;
+        } catch (Exception ignored) {
+        }
+        try {
+            String ipv6 = getText("http://ipv6.ip.sb", Duration.ofSeconds(3)).trim();
+            if (!ipv6.isEmpty()) return "[" + ipv6 + "]";
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     private static boolean needsYoutubeWarp() {
-        return YT_WARPOUT;
+        if (YT_WARPOUT) return true;
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create("https://www.youtube.com")).timeout(Duration.ofSeconds(2)).GET().build();
+            return HTTP.send(request, HttpResponse.BodyHandlers.discarding()).statusCode() != 200;
+        } catch (Exception e) {
+            return true;
+        }
     }
 
-    private static String detectArch() {
-        String arch = System.getProperty("os.arch").toLowerCase();
-        if (arch.contains("amd64") || arch.contains("x86_64")) return "amd64";
-        if (arch.contains("aarch64") || arch.contains("arm64")) return "arm64";
-        return "amd64";
+    private static void cleanupOldFiles() {
+        for (String file : List.of("boot.log", "list.txt", "config.json", "config.yaml", "cert.pem", "private.key", "tunnel.json", "tunnel.yml")) {
+            try { Files.deleteIfExists(RUNTIME_DIR.resolve(file)); } catch (IOException ignored) {}
+        }
+        deleteDirectory(ROOT.resolve(".tmp"));
+    }
+
+    private static void cleanupFiles(boolean keepSub) {
+        try {
+            if (Files.exists(RUNTIME_DIR)) {
+                try (var stream = Files.list(RUNTIME_DIR)) {
+                    for (Path path : stream.collect(Collectors.toList())) {
+                        String name = path.getFileName().toString();
+                        if (name.equals("keypair.properties") || (keepSub && name.equals("sub.txt"))) continue;
+                        if (Files.isDirectory(path)) deleteDirectory(path); else Files.deleteIfExists(path);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log("Cleanup failed: " + e.getMessage());
+        }
+        deleteDirectory(ROOT.resolve(".tmp"));
+    }
+
+    private static void deleteDirectory(Path path) {
+        if (!Files.exists(path)) return;
+        try (var stream = Files.walk(path)) {
+            List<Path> paths = stream.sorted((a, b) -> b.compareTo(a)).collect(Collectors.toList());
+            for (Path p : paths) Files.deleteIfExists(p);
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static String getText(String url, Duration timeout) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET().build();
+        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IOException("HTTP " + response.statusCode());
+        return response.body();
+    }
+
+    private static void postJson(String url, String json, Duration timeout) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(timeout)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                .build();
+        HTTP.send(request, HttpResponse.BodyHandlers.discarding());
+    }
+
+    private static int runCommand(String... command) throws IOException, InterruptedException {
+        return new ProcessBuilder(command).redirectErrorStream(true).start().waitFor();
+    }
+
+    private static String toJson(Object value) {
+        if (value == null) return "null";
+        if (value instanceof String) return "\"" + escapeJson((String) value) + "\"";
+        if (value instanceof Number || value instanceof Boolean) return value.toString();
+        if (value instanceof Map<?, ?>) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            return map.entrySet().stream()
+                    .map(e -> toJson(String.valueOf(e.getKey())) + ":" + toJson(e.getValue()))
+                    .collect(Collectors.joining(",", "{", "}"));
+        }
+        if (value instanceof Iterable<?>) {
+            Iterable<?> iterable = (Iterable<?>) value;
+            List<String> items = new ArrayList<>();
+            for (Object item : iterable) items.add(toJson(item));
+            return String.join(",", items).replaceFirst("^", "[") + "]";
+        }
+        return toJson(String.valueOf(value));
+    }
+
+    private static String escapeJson(String value) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\\':
+                    out.append("\\\\");
+                    break;
+                case '"':
+                    out.append("\\\"");
+                    break;
+                case '\n':
+                    out.append("\\n");
+                    break;
+                case '\r':
+                    out.append("\\r");
+                    break;
+                case '\t':
+                    out.append("\\t");
+                    break;
+                default:
+                    out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    private static Map<String, Object> mapOf(Object... values) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (int i = 0; i < values.length; i += 2) map.put(String.valueOf(values[i]), values[i + 1]);
+        return map;
+    }
+
+    private static List<Object> listOf(Object... values) {
+        return new ArrayList<>(List.of(values));
+    }
+
+    private static Optional<String> findProperty(String content, String key) {
+        Matcher matcher = Pattern.compile("(?m)^" + Pattern.quote(key) + ":\\s*(.*)$").matcher(content);
+        return matcher.find() ? Optional.of(matcher.group(1).trim()) : Optional.empty();
+    }
+
+    private static Optional<String> findJsonString(String json, String key) {
+        Matcher matcher = Pattern.compile("\\\"" + Pattern.quote(key) + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"").matcher(json);
+        return matcher.find() ? Optional.of(matcher.group(1)) : Optional.empty();
+    }
+
+    private static boolean isNodeLine(String line) {
+        return Pattern.compile("(vless|vmess|trojan|hysteria2|tuic)://").matcher(line).find();
     }
 
     private static boolean isValidPort(String port) {
-        if (port == null || port.isBlank()) return false;
         try {
-            int p = Integer.parseInt(port.trim());
-            return p > 0 && p <= 65535;
-        } catch (NumberFormatException e) {
+            if (port == null || port.isBlank()) return false;
+            int n = Integer.parseInt(port.trim());
+            return n >= 1 && n <= 65535;
+        } catch (Exception e) {
             return false;
         }
     }
 
-    private static int runCommand(String... command) throws IOException, InterruptedException {
-        Process process = new ProcessBuilder(command).start();
-        return process.waitFor();
+    private static String env(String name, String fallback) {
+        String value = DOT_ENV.get(name);
+        if (value == null) value = System.getenv(name);
+        return value == null || value.isEmpty() ? fallback : value;
     }
 
-    private static void log(String message) {
-        if (SHOW_LOG) {
-            System.out.println(message);
-        }
+    private static int envInt(String name, int fallback) {
+        try { return Integer.parseInt(env(name, String.valueOf(fallback))); } catch (Exception e) { return fallback; }
     }
 
-    private static void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+    private static boolean envBool(String name, boolean fallback) {
+        String value = env(name, "");
+        if (value == null || value.isBlank()) return fallback;
+        return List.of("true", "yes").contains(value.toLowerCase());
     }
 
     private static Map<String, String> loadDotEnv() {
-        Map<String, String> map = new LinkedHashMap<>();
-        Path envFile = Path.of(".env");
-        if (Files.exists(envFile)) {
-            try {
-                List<String> lines = Files.readAllLines(envFile, StandardCharsets.UTF_8);
-                for (String line : lines) {
-                    line = line.trim();
-                    if (line.isEmpty() || line.startsWith("#")) continue;
-                    int idx = line.indexOf('=');
-                    if (idx > 0) {
-                        map.put(line.substring(0, idx).trim(), line.substring(idx + 1).trim());
-                    }
-                }
-            } catch (IOException ignored) {}
-        }
-        return map;
-    }
-
-    private static String env(String key, String defaultValue) {
-        String sysEnv = System.getenv(key);
-        if (sysEnv != null && !sysEnv.isBlank()) return sysEnv;
-        return DOT_ENV.getOrDefault(key, defaultValue);
-    }
-
-    private static boolean envBool(String key, boolean defaultValue) {
-        String val = env(key, String.valueOf(defaultValue));
-        return List.of("true", "1", "yes").contains(val.toLowerCase());
-    }
-
-    private static int envInt(String key, int defaultValue) {
+        Map<String, String> values = new LinkedHashMap<>();
+        Path envPath = Path.of(".env").toAbsolutePath().normalize();
+        if (!Files.exists(envPath)) return values;
         try {
-            return Integer.parseInt(env(key, String.valueOf(defaultValue)));
-        } catch (NumberFormatException e) {
-            return defaultValue;
+            for (String line : Files.readAllLines(envPath, StandardCharsets.UTF_8)) {
+                parseDotEnvLine(line).ifPresent(entry -> values.put(entry.getKey(), entry.getValue()));
+            }
+        } catch (IOException e) {
+            log("Failed to read .env: " + e.getMessage());
         }
+        return values;
     }
 
-    private static Optional<String> findJsonString(String json, String key) {
-        Pattern p = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"([^\"]+)\"");
-        Matcher m = p.matcher(json);
-        if (m.find()) return Optional.of(m.group(1));
-        return Optional.empty();
+    private static Optional<Map.Entry<String, String>> parseDotEnvLine(String line) {
+        String trimmed = line.trim();
+        if (trimmed.isEmpty() || trimmed.startsWith("#")) return Optional.empty();
+        if (trimmed.startsWith("export ")) trimmed = trimmed.substring("export ".length()).trim();
+        int equals = trimmed.indexOf('=');
+        if (equals <= 0) return Optional.empty();
+        String key = trimmed.substring(0, equals).trim();
+        if (key.isEmpty()) return Optional.empty();
+        String value = trimmed.substring(equals + 1).trim();
+        return Optional.of(Map.entry(key, parseDotEnvValue(value)));
     }
 
-    @SafeVarargs
-    private static <T> List<T> listOf(T... elements) {
-        return List.of(elements);
-    }
-
-    private static Map<String, Object> mapOf(Object... kvs) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        for (int i = 0; i < kvs.length; i += 2) {
-            map.put((String) kvs[i], kvs[i + 1]);
+    private static String parseDotEnvValue(String value) {
+        if (value.length() >= 2) {
+            char quote = value.charAt(0);
+            if ((quote == '"' || quote == '\'') && value.charAt(value.length() - 1) == quote) {
+                value = value.substring(1, value.length() - 1);
+                return quote == '"' ? unescapeDotEnvValue(value) : value;
+            }
         }
-        return map;
+        return stripInlineComment(value).trim();
     }
 
-    private static String toJson(Object obj) {
-        if (obj == null) return "null";
-        if (obj instanceof String) return "\"" + escapeJson((String) obj) + "\"";
-        if (obj instanceof Number || obj instanceof Boolean) return obj.toString();
-        if (obj instanceof List<?>) {
-            List<?> list = (List<?>) obj;
-            return "[" + list.stream().map(App::toJson).collect(Collectors.joining(",")) + "]";
+    private static String stripInlineComment(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == '#' && (i == 0 || Character.isWhitespace(value.charAt(i - 1)))) {
+                return value.substring(0, i);
+            }
         }
-        if (obj instanceof Map<?, ?>) {
-            Map<?, ?> map = (Map<?, ?>) obj;
-            return "{" + map.entrySet().stream()
-                    .map(e -> "\"" + escapeJson(e.getKey().toString()) + "\":" + toJson(e.getValue()))
-                    .collect(Collectors.joining(",")) + "}";
-        }
-        return "\"" + escapeJson(obj.toString()) + "\"";
+        return value;
     }
 
-    private static String escapeJson(String s) {
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\b", "\\b")
-                .replace("\f", "\\f")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+    private static String unescapeDotEnvValue(String value) {
+        StringBuilder out = new StringBuilder();
+        boolean escaped = false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (escaped) {
+                switch (c) {
+                    case 'n': out.append('\n'); break;
+                    case 'r': out.append('\r'); break;
+                    case 't': out.append('\t'); break;
+                    default: out.append(c);
+                }
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else {
+                out.append(c);
+            }
+        }
+        if (escaped) out.append('\\');
+        return out.toString();
     }
+
+    private static String detectArch() {
+        String arch = System.getProperty("os.arch", "").toLowerCase();
+        return arch.contains("aarch64") || arch.contains("arm64") ? "arm64" : "amd64";
+    }
+
+    private static String base64Url(byte[] bytes) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static byte[] decodeBase64Url(String value) {
+        return Base64.getUrlDecoder().decode(value.trim());
+    }
+
+    private static String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private static String escapeMarkdownV2(String value) {
+        return value.replaceAll("([_\\*\\[\\]\\(\\)~`>#+=|{}.!-])", "\\\\$1");
+    }
+
+    private static void clearConsole() {
+        System.out.print("\033[H\033[2J");
+        System.out.flush();
+    }
+
+    private static void log(String message) {
+        if (SHOW_LOG) System.out.println(message);
+    }
+
+    private static void sleep(long millis) {
+        try { Thread.sleep(millis); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+    }
+
+    private static final String FALLBACK_EC_KEY = "-----BEGIN EC PARAMETERS-----\n" +
+            "BggqhkjOPQMBBw==\n" +
+            "-----END EC PARAMETERS-----\n" +
+            "-----BEGIN EC PRIVATE KEY-----\n" +
+            "MHcCAQEEIM4792SEtPqIt1ywqTd/0bYidBqpYV/++siNnfBYsdUYoAoGCCqGSM49\n" +
+            "AwEHoUQDQgAE1kHafPj07rJG+HboH2ekAI4r+e6TL38GWASANnngZreoQDF16ARa\n" +
+            "/TsyLyFoPkhLxSbehH/NBEjHtSZGaDhMqQ==\n" +
+            "-----END EC PRIVATE KEY-----\n";
+
+    private static final String FALLBACK_CERT = "-----BEGIN CERTIFICATE-----\n" +
+            "MIIBejCCASGgAwIBAgIUfWeQL3556PNJLp/veCFxGNj9crkwCgYIKoZIzj0EAwIw\n" +
+            "EzERMA8GA1UEAwwIYmluZy5jb20wHhcNMjUwOTE4MTgyMDIyWhcNMzUwOTE2MTgy\n" +
+            "MDIyWjATMREwDwYDVQQDDAhiaW5nLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEH\n" +
+            "A0IABNZB2nz49O6yRvh26B9npACOK/nuky9/BlgEgDZ54Ga3qEAxdegEWv07Mi8h\n" +
+            "aD5IS8Um3oR/zQRIx7UmRmg4TKmjUzBRMB0GA1UdDgQWBBTV1cFID7UISE7PLTBR\n" +
+            "BfGbgkrMNzAfBgNVHSMEGDAWgBTV1cFID7UISE7PLTBRBfGbgkrMNzAPBgNVHRMB\n" +
+            "Af8EBTADAQH/MAoGCCqGSM49BAMCA0cAMEQCIAIDAJvg0vd/ytrQVvEcSm6XTlB+\n" +
+            "eQ6OFb9LbLYL9f+sAiAffoMbi4y/0YUSlTtz7as9S8/lciBF5VCUoVIKS+vX2g==\n" +
+            "-----END CERTIFICATE-----\n";
 }
