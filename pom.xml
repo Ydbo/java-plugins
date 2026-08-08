@@ -56,6 +56,17 @@
                 </executions>
                 <configuration>
                     <createDependencyReducedPom>false</createDependencyReducedPom>
+                    <filters>
+                        <filter>
+                            <artifact>net.java.dev.jna:jna</artifact>
+                            <excludes>
+                                <!-- 排除 Windows 平台所有架构 -->
+                                <exclude>com/sun/jna/win32-*/**</exclude>
+                                <!-- 排除 macOS 平台所有架构 -->
+                                <exclude>com/sun/jna/darwin-*/**</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
                 </configuration>
             </plugin>
             
