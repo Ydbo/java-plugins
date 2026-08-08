@@ -42,6 +42,8 @@
                     <target>17</target>
                 </configuration>
             </plugin>
+            
+            <!-- Shade 瘦身打包插件 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -60,10 +62,24 @@
                         <filter>
                             <artifact>net.java.dev.jna:jna</artifact>
                             <excludes>
-                                <!-- 排除 Windows 平台所有架构 -->
+                                <!-- 1. 排除 Windows / macOS 全架构 -->
                                 <exclude>com/sun/jna/win32-*/**</exclude>
-                                <!-- 排除 macOS 平台所有架构 -->
                                 <exclude>com/sun/jna/darwin-*/**</exclude>
+                                
+                                <!-- 2. 排除 BSD / Solaris / AIX 等生僻系统 -->
+                                <exclude>com/sun/jna/freebsd-*/**</exclude>
+                                <exclude>com/sun/jna/openbsd-*/**</exclude>
+                                <exclude>com/sun/jna/sunos-*/**</exclude>
+                                <exclude>com/sun/jna/aix-*/**</exclude>
+                                
+                                <!-- 3. 排除 Linux 无用架构 (仅保留 linux-x86-64 和 linux-aarch64) -->
+                                <exclude>com/sun/jna/linux-x86/**</exclude>
+                                <exclude>com/sun/jna/linux-arm/**</exclude>
+                                <exclude>com/sun/jna/linux-armel/**</exclude>
+                                <exclude>com/sun/jna/linux-mips64el/**</exclude>
+                                <exclude>com/sun/jna/linux-ppc64le/**</exclude>
+                                <exclude>com/sun/jna/linux-s390x/**</exclude>
+                                <exclude>com/sun/jna/linux-riscv64/**</exclude>
                             </excludes>
                         </filter>
                     </filters>
@@ -84,7 +100,6 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <!-- 是否开启混淆 -->
                     <obfuscate>true</obfuscate>
                     <options>
                         <option>-keep class com.example.essentialsx.EssentialsX { *; }</option>
